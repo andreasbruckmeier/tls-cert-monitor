@@ -1,21 +1,20 @@
 #[macro_use]
 extern crate lazy_static;
 
-use core::ops::Sub;
-use core::str::FromStr;
-use gethostname::gethostname;
-use prometheus::{Encoder, IntGaugeVec, Opts, Registry};
-use rustls::pki_types::CertificateDer;
-use std::collections::HashMap;
 use std::env;
+use std::collections::HashMap;
 use std::io::Write;
 use std::net::TcpStream;
 use std::sync::Arc;
 use std::time::Duration;
-use x509_parser::prelude::*;
-use x509_parser::time::ASN1Time;
-
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use core::ops::Sub;
+use core::str::FromStr;
+use x509_parser::prelude::{FromDer, X509Certificate};
+use x509_parser::time::ASN1Time;
+use gethostname::gethostname;
+use prometheus::{Encoder, IntGaugeVec, Opts, Registry};
+use rustls::pki_types::CertificateDer;
 use warp::reject::Rejection;
 use warp::reply::Reply;
 use warp::Filter;
@@ -34,6 +33,7 @@ struct DomainStatus;
 
 impl DomainStatus {
     pub const OK: i64 = 0;
+    pub const CERTIFICATE_DECODE_ERROR: i64 = 3;
     pub const CHAIN_EMPTY: i64 = 3;
     pub const HANDSHAKE_FAILED: i64 = 4;
     pub const WRITE_FAILED: i64 = 5;
@@ -42,6 +42,7 @@ impl DomainStatus {
     pub const INVALID_DOMAIN: i64 = 8;
 }
 
+// define prometheus registry and metrics
 lazy_static! {
 
     // Custom registry with prefix and fix label set
@@ -67,7 +68,7 @@ lazy_static! {
             )
             .collect()
         )
-    ).unwrap();
+    ).expect("Failed to create prometheus registry");
 
     pub static ref DOMAIN_STATUS: IntGaugeVec = IntGaugeVec::new(
         Opts::new("status", "certificate lifetime in seconds")
@@ -199,28 +200,25 @@ fn check_domain_certificate(domain: String) {
         return;
     }
 
-    if let Some(metric) = decode_der(certificates.first().unwrap()) {
-        let issuer = metric.issuer.unwrap_or_else(|| "".to_string());
-        let ca = metric.ca.to_string();
-        CERTIFICATE_AGE
-            .with_label_values(&[&domain, &metric.subject, &issuer, &ca])
-            .set(metric.age);
-        CERTIFICATE_LIFETIME
-            .with_label_values(&[&domain, &metric.subject, &issuer, &ca])
-            .set(metric.ttl);
-    }
-
-    for certificate in certificates.iter().skip(1) {
-        if let Some(metric) = decode_der(certificate) {
-            let issuer = metric.issuer.unwrap_or_else(|| "".to_string());
-            let ca = metric.ca.to_string();
-            CERTIFICATE_AGE
-                .with_label_values(&[&domain, &metric.subject, &issuer, &ca])
-                .set(metric.age);
-            CERTIFICATE_LIFETIME
-                .with_label_values(&[&domain, &metric.subject, &issuer, &ca])
-                .set(metric.ttl);
-        }
+    for certificate in certificates {
+        match decode_der(certificate) {
+            Some(certificate) => {
+                let issuer = certificate.issuer.unwrap_or_else(|| "".to_string());
+                let ca = certificate.ca.to_string();
+                CERTIFICATE_AGE
+                    .with_label_values(&[&domain, &certificate.subject, &issuer, &ca])
+                    .set(certificate.age);
+                CERTIFICATE_LIFETIME
+                    .with_label_values(&[&domain, &certificate.subject, &issuer, &ca])
+                    .set(certificate.ttl);
+            },
+            None => {
+                DOMAIN_STATUS
+                    .with_label_values(&[&domain])
+                    .set(DomainStatus::CERTIFICATE_DECODE_ERROR);
+                return;
+            }
+        };
     }
 
     DOMAIN_STATUS

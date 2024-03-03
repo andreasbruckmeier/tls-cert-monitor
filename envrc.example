@@ -1,0 +1,20 @@
+# comma separated list of domains
+export TLS_CERT_MONITOR_DOMAINS="www.google.de"
+
+# defaults to 0.0.0.0
+#export TLS_CERT_MONITOR_ADDRESS="0.0.0.0"
+
+# defaults to 8080
+#export TLS_CERT_MONITOR_PORT="8080"
+
+# interval for testing domains, defaults to 30 seconds
+#export TLS_CERT_MONITOR_INTERVAL="30"
+
+# prefix for exported metrics, defaults to empty
+#export TLS_CERT_MONITOR_METRIC_PREFIX="tls_cert_monitor"
+
+# value for the instance label, defaults to hostname()
+#export TLS_CERT_MONITOR_INSTANCE="myhost"
+
+# comma separated list of label/value pairs
+#export TLS_CERT_MONITOR_COMMON_LABELS="foo=bar,brother=cool"
